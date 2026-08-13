@@ -217,8 +217,13 @@ function openService(s) {
 async function fetchServices() {
     const { data, error } = await supabase.from('services').select('*').order('name');
     if (error) {
-        toast('Error cargando catálogo');
-        console.error(error);
+        toast('Error de conexión o permisos en Supabase (Revisar RLS)');
+        console.error("Error cargando servicios:", error);
+        services = []; // Fallback para que la app no se congele
+        setupCatalogOptions();
+        renderDashboard();
+        renderCatalog();
+        renderQuote();
         return;
     }
     
@@ -264,7 +269,10 @@ async function checkUserAndStart(authUser) {
     isEditor = false;
 
     if (user) {
-        const { data } = await supabase.from('editor_profiles').select('role').eq('user_id', user.id).single();
+        const { data, error } = await supabase.from('editor_profiles').select('role').eq('user_id', user.id).single();
+        if (error) {
+            console.warn("No se pudo verificar el perfil de editor (¿Falta política RLS?):", error.message);
+        }
         if (data) {
             isEditor = true;
         }
