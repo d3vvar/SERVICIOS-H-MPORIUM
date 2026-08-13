@@ -68,6 +68,7 @@ let budgets = [];
 let projects = [];
 let activity = [];
 let operationsReady = false;
+let catalogStructure = JSON.parse(localStorage.getItem('hm-catalog-structure') || '[]');
 
 const money = v => new Intl.NumberFormat('es-PE', {style: 'currency', currency: 'PEN', maximumFractionDigits: 0}).format(v);
 const saveQuote = () => localStorage.setItem('hm-quote', JSON.stringify(quote));
@@ -94,7 +95,37 @@ function setAppStatus(message, tone = 'ready') {
 }
 
 function categories() {
-    return [...new Set(services.map(s => s.category))].sort();
+    const names = [...new Set(services.map(s => s.category))];
+    return names.sort((a, b) => structureOrder('category', a) - structureOrder('category', b) || a.localeCompare(b));
+}
+
+function structureOrder(kind, name, parent = '') {
+    const item = catalogStructure.find(x => x.kind === kind && x.name === name && (x.parent_name || '') === parent);
+    return item ? item.sort_order : 9999;
+}
+
+function syncStructureFromServices() {
+    const current = [];
+    categories().forEach((category, index) => {
+        current.push({ kind: 'category', name: category, parent_name: '', sort_order: structureOrder('category', category) === 9999 ? index : structureOrder('category', category) });
+        [...new Set(services.filter(s => s.category === category).map(s => s.subcategory).filter(Boolean))].forEach((name, subIndex) => current.push({ kind: 'subcategory', name, parent_name: category, sort_order: structureOrder('subcategory', name, category) === 9999 ? subIndex : structureOrder('subcategory', name, category) }));
+    });
+    catalogStructure = current;
+    localStorage.setItem('hm-catalog-structure', JSON.stringify(catalogStructure));
+}
+
+function renderStructure() {
+    syncStructureFromServices();
+    $('#structure-list').innerHTML = categories().map(category => {
+        const subs = catalogStructure.filter(x => x.kind === 'subcategory' && x.parent_name === category).sort((a,b) => a.sort_order - b.sort_order);
+        return `<section class="structure-group"><div class="structure-row"><strong>${category}</strong><div><button data-structure="rename-category" data-name="${category}">Renombrar</button><button data-structure="up-category" data-name="${category}">↑</button><button data-structure="down-category" data-name="${category}">↓</button></div></div>${subs.map(sub => `<div class="structure-row sub"><span>${sub.name}</span><div><button data-structure="rename-sub" data-name="${sub.name}" data-parent="${category}">Renombrar</button><button data-structure="up-sub" data-name="${sub.name}" data-parent="${category}">↑</button><button data-structure="down-sub" data-name="${sub.name}" data-parent="${category}">↓</button></div></div>`).join('')}<button class="add-subcategory" data-add-sub="${category}">+ Subcategoría</button></section>`;
+    }).join('');
+}
+
+async function persistStructure() {
+    localStorage.setItem('hm-catalog-structure', JSON.stringify(catalogStructure));
+    const { error } = await db.from('catalog_structure').upsert(catalogStructure, { onConflict: 'kind,name,parent_name' });
+    if (error) console.warn('Estructura guardada solo en este navegador hasta activar SQL:', error.message);
 }
 
 function setupCatalogOptions() {
@@ -106,12 +137,27 @@ function setupCatalogOptions() {
 }
 
 function renderDashboard() {
-    $('#metric-services').textContent = services.length;
-    $('#metric-categories').textContent = categories().length;
     const total = quote.reduce((a, q) => a + q.min_price * q.qty, 0);
     $('#metric-total').textContent = money(total);
     $('#metric-items').textContent = quote.length ? `${quote.length} servicio${quote.length !== 1 ? 's' : ''} seleccionado${quote.length !== 1 ? 's' : ''}` : 'sin servicios seleccionados';
-    $('#featured-services').innerHTML = services.slice(0, 6).map(card).join('');
+    const editorView = isEditor && operationsReady;
+    $('#metric-one-label').textContent = editorView ? 'Presupuestos por decidir' : 'Servicios activos';
+    $('#metric-services').textContent = editorView ? budgets.filter(b => ['draft', 'sent', 'review'].includes(b.status)).length : services.length;
+    $('#metric-one-detail').textContent = editorView ? 'requieren seguimiento' : 'en el catálogo';
+    $('#metric-two-label').textContent = editorView ? 'Proyectos activos' : 'Categorías';
+    $('#metric-categories').textContent = editorView ? projects.filter(p => ['in_progress', 'waiting_client'].includes(p.status)).length : categories().length;
+    $('#metric-two-detail').textContent = editorView ? 'en ejecución o espera' : 'áreas de trabajo';
+    $('#dashboard-section-label').textContent = editorView ? 'PRÓXIMOS PASOS' : 'CATÁLOGO';
+    $('#dashboard-section-title').textContent = editorView ? 'Seguimiento reciente' : 'Servicios frecuentes';
+    $('#dashboard-section-action').textContent = editorView ? 'Ver presupuestos →' : 'Ver catálogo completo →';
+    $('#dashboard-section-action').dataset.go = editorView ? 'budgets' : 'catalog';
+    $('#featured-services').innerHTML = editorView ? renderFollowUpCards() : services.slice(0, 6).map(card).join('');
+}
+
+function renderFollowUpCards() {
+    const recent = [...budgets].filter(b => !['rejected', 'cancelled'].includes(b.status)).slice(0, 3);
+    if (!recent.length) return '<div class="empty-state dashboard-empty"><span>→</span><h3>Tu primer presupuesto empieza aquí</h3><p>Analiza una necesidad, añade servicios y guárdalo para poder darle seguimiento.</p><button class="button primary" data-go="estimate">Crear presupuesto</button></div>';
+    return recent.map(b => `<article class="service-card follow-up-card"><span class="category">${statusLabel[b.status]}</span><h4>${b.title}</h4><p>${b.clients?.name || 'Cliente sin asignar'}</p><footer><b>${money(b.total_min || 0)} — ${money(b.total_max || 0)}</b><span>${b.code}</span></footer></article>`).join('');
 }
 
 const statusLabel = { draft: 'Borrador', sent: 'Enviado', review: 'En revisión', approved: 'Aprobado', rejected: 'Rechazado', in_progress: 'En ejecución', waiting_client: 'Esperando cliente', completed: 'Finalizado', cancelled: 'Cancelado' };
@@ -151,6 +197,7 @@ async function fetchOperations() {
     projects = projectResult.data || [];
     activity = activityResult.data || [];
     renderOperations();
+    renderDashboard();
 }
 
 async function logActivity(action, detail, entityType, entityId) {
@@ -183,7 +230,7 @@ function renderCatalog() {
             (all[key] ??= []).push(s);
             return all;
         }, {});
-        const content = Object.entries(bySub).map(([sub, subitems]) => `${sub ? `<div class="subcategory-heading"><span>${sub}</span><small>${subitems.length} servicio${subitems.length !== 1 ? 's' : ''}</small></div>` : ''}${subitems.map(row).join('')}`).join('');
+        const content = Object.entries(bySub).sort(([a], [b]) => structureOrder('subcategory', a, category) - structureOrder('subcategory', b, category) || a.localeCompare(b)).map(([sub, subitems]) => `${sub ? `<div class="subcategory-heading"><span>${sub}</span><small>${subitems.length} servicio${subitems.length !== 1 ? 's' : ''}</small></div>` : ''}${subitems.map(row).join('')}`).join('');
         return `<section class="category-group ${expanded ? 'expanded' : ''}"><button class="category-toggle" data-category-toggle="${category}" aria-expanded="${expanded}"><span><small>ÁREA DE SERVICIO</small><b>${category}</b></span><em>${items.length} servicio${items.length !== 1 ? 's' : ''}</em><i>⌄</i></button><div class="category-services">${content}</div></section>`;
     }).join('');
 }
@@ -313,6 +360,10 @@ async function fetchServices() {
     }
     
     services = data;
+    if (isEditor) {
+        const { data: structureData, error: structureError } = await db.from('catalog_structure').select('kind,name,parent_name,sort_order');
+        if (!structureError && structureData?.length) catalogStructure = structureData;
+    }
     setupCatalogOptions();
     renderDashboard();
     renderCatalog();
@@ -400,9 +451,51 @@ function startApp() {
 // UI Event Listeners
 $$('.nav-link').forEach(e => e.onclick = () => nav(e.dataset.view));
 $$('[data-go]').forEach(e => e.onclick = () => nav(e.dataset.go));
+$('#featured-services').onclick = e => {
+    const button = e.target.closest('[data-go]');
+    if (button) nav(button.dataset.go);
+};
 $('#catalog-search').oninput = renderCatalog;
 $('#category-filter').onchange = renderCatalog;
 $('#add-service').onclick = () => openService();
+$('#manage-structure').onclick = () => { renderStructure(); $('#structure-dialog').showModal(); };
+$$('.close-structure').forEach(button => button.onclick = () => $('#structure-dialog').close());
+$('#add-category').onclick = async () => {
+    const name = prompt('Nombre de la nueva categoría:')?.trim();
+    if (!name || categories().includes(name)) return;
+    catalogStructure.push({ kind: 'category', name, parent_name: '', sort_order: catalogStructure.filter(x => x.kind === 'category').length });
+    await persistStructure(); renderStructure(); toast('Categoría creada. Podrás asignarle servicios al editar uno.');
+};
+$('#structure-list').onclick = async e => {
+    const add = e.target.dataset.addSub;
+    if (add) {
+        const name = prompt(`Nueva subcategoría para ${add}:`)?.trim();
+        if (name) { catalogStructure.push({ kind: 'subcategory', name, parent_name: add, sort_order: catalogStructure.filter(x => x.kind === 'subcategory' && x.parent_name === add).length }); await persistStructure(); renderStructure(); }
+        return;
+    }
+    const action = e.target.dataset.structure;
+    if (!action) return;
+    const name = e.target.dataset.name, parent = e.target.dataset.parent || '';
+    const isCategory = action.includes('category');
+    if (action.startsWith('rename')) {
+        const renamed = prompt('Nuevo nombre:', name)?.trim();
+        if (!renamed || renamed === name) return;
+        const column = isCategory ? 'category' : 'subcategory';
+        let query = db.from('services').update({ [column]: renamed }).eq(column, name);
+        if (!isCategory) query = query.eq('category', parent);
+        const { error } = await query;
+        if (error) { toast('No se pudo renombrar en Supabase'); return; }
+        catalogStructure.forEach(item => { if (item.kind === (isCategory ? 'category' : 'subcategory') && item.name === name && (!parent || item.parent_name === parent)) item.name = renamed; if (isCategory && item.kind === 'subcategory' && item.parent_name === name) item.parent_name = renamed; });
+        await persistStructure(); await fetchServices(); renderStructure(); toast('Nombre actualizado'); return;
+    }
+    const kind = isCategory ? 'category' : 'subcategory';
+    const items = catalogStructure.filter(x => x.kind === kind && (isCategory || x.parent_name === parent)).sort((a,b) => a.sort_order - b.sort_order);
+    const index = items.findIndex(x => x.name === name);
+    const target = action.startsWith('up') ? index - 1 : index + 1;
+    if (target < 0 || target >= items.length) return;
+    [items[index].sort_order, items[target].sort_order] = [items[target].sort_order, items[index].sort_order];
+    await persistStructure(); renderStructure(); renderCatalog();
+};
 $('#analyze-button').onclick = analyze;
 $('#add-client').onclick = () => $('#client-dialog').showModal();
 $('#save-budget').onclick = () => {
