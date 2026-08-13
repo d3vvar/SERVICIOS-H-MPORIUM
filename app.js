@@ -229,7 +229,7 @@ async function fetchServices() {
     
     // Si la BD está vacía y somos editores, migramos los datos locales iniciales
     if (data.length === 0 && isEditor) {
-        const { error: insertError } = await supabase.from('services').insert(initialDataToMigrate);
+        const { error: insertError } = await supabase.from('services').insert(seedServices);
         if (!insertError) {
             toast('Catálogo base migrado a Supabase');
             return fetchServices(); // Volver a consultar
