@@ -62,6 +62,12 @@ let user = null;
 let isEditor = false;
 let lastSuggestions = [];
 let openCategories = new Set();
+let servicesChannel = null;
+let clients = [];
+let budgets = [];
+let projects = [];
+let activity = [];
+let operationsReady = false;
 
 const money = v => new Intl.NumberFormat('es-PE', {style: 'currency', currency: 'PEN', maximumFractionDigits: 0}).format(v);
 const saveQuote = () => localStorage.setItem('hm-quote', JSON.stringify(quote));
@@ -71,6 +77,20 @@ function toast(msg) {
     e.textContent = msg;
     e.classList.add('show');
     setTimeout(() => e.classList.remove('show'), 2600);
+}
+
+function setAppStatus(message, tone = 'ready') {
+    let status = $('#app-status');
+    if (!status) {
+        status = document.createElement('span');
+        status.id = 'app-status';
+        status.className = 'app-status';
+        status.setAttribute('role', 'status');
+        status.setAttribute('aria-live', 'polite');
+        $('.topbar-actions')?.prepend(status);
+    }
+    status.textContent = message;
+    status.dataset.tone = tone;
 }
 
 function categories() {
@@ -94,6 +114,49 @@ function renderDashboard() {
     $('#featured-services').innerHTML = services.slice(0, 6).map(card).join('');
 }
 
+const statusLabel = { draft: 'Borrador', sent: 'Enviado', review: 'En revisión', approved: 'Aprobado', rejected: 'Rechazado', in_progress: 'En ejecución', waiting_client: 'Esperando cliente', completed: 'Finalizado', cancelled: 'Cancelado' };
+const budgetStatusOptions = status => ['draft', 'sent', 'review', 'approved', 'rejected', 'cancelled'].map(value => `<option value="${value}" ${value === status ? 'selected' : ''}>${statusLabel[value]}</option>`).join('');
+const projectStatusOptions = status => ['in_progress', 'waiting_client', 'completed', 'cancelled'].map(value => `<option value="${value}" ${value === status ? 'selected' : ''}>${statusLabel[value] || (value === 'waiting_client' ? 'Esperando cliente' : value)}</option>`).join('');
+const emptyOperations = text => `<div class="empty-state operations-empty"><span>◌</span><h3>${text}</h3><p>Cuando lo registres, aparecerá aquí con su historial.</p></div>`;
+
+function renderOperations() {
+    if (!isEditor) return;
+    $('#clients-list').innerHTML = clients.length ? clients.map(c => `<article class="operation-card"><div class="operation-symbol">◉</div><div><p class="eyebrow">CLIENTE</p><h3>${c.name}</h3><p>${[c.phone, c.email, c.location].filter(Boolean).join(' · ') || 'Sin datos de contacto'}</p></div><small>${budgets.filter(b => b.client_id === c.id).length} presupuestos</small></article>`).join('') : emptyOperations('Aún no hay clientes registrados');
+    $('#budgets-list').innerHTML = budgets.length ? budgets.map(b => `<article class="operation-card budget-card"><div><p class="eyebrow">${b.code || 'PRESUPUESTO'}</p><h3>${b.title}</h3><p>${b.clients?.name || 'Cliente sin asignar'} · ${money(b.total_min || 0)} — ${money(b.total_max || 0)}</p></div><div class="status-control"><select data-budget-status="${b.id}">${budgetStatusOptions(b.status)}</select><small>${b.valid_until ? `Vigente hasta ${b.valid_until}` : 'Sin fecha de vigencia'}</small></div></article>`).join('') : emptyOperations('Aún no hay presupuestos guardados');
+    $('#projects-list').innerHTML = projects.length ? projects.map(p => `<article class="operation-card project-card"><div class="operation-symbol">◫</div><div><p class="eyebrow">${p.budgets?.code || 'PROYECTO'}</p><h3>${p.title}</h3><p>${p.clients?.name || 'Cliente sin asignar'} · ${p.start_date || 'Sin fecha de inicio'}</p></div><div class="status-control"><select data-project-status="${p.id}">${projectStatusOptions(p.status)}</select></div></article>`).join('') : emptyOperations('Aún no hay proyectos en ejecución');
+    $('#history-list').innerHTML = activity.length ? activity.map(a => `<article class="timeline-item"><span></span><div><p class="eyebrow">${new Date(a.created_at).toLocaleDateString('es-PE')}</p><h3>${a.action}</h3><p>${a.detail || 'Actualización registrada en el flujo operativo.'}</p></div></article>`).join('') : emptyOperations('El historial aparecerá aquí');
+}
+
+async function fetchOperations() {
+    if (!isEditor) return;
+    const [clientResult, budgetResult, projectResult, activityResult] = await Promise.all([
+        db.from('clients').select('*').order('created_at', { ascending: false }),
+        db.from('budgets').select('*, clients(name)').order('created_at', { ascending: false }),
+        db.from('projects').select('*, clients(name), budgets(code)').order('created_at', { ascending: false }),
+        db.from('activity_log').select('*').order('created_at', { ascending: false }).limit(60)
+    ]);
+    const errors = [clientResult.error, budgetResult.error, projectResult.error, activityResult.error].filter(Boolean);
+    if (errors.length) {
+        operationsReady = false;
+        ['#clients-list', '#budgets-list', '#projects-list', '#history-list'].forEach(selector => {
+            const target = $(selector);
+            if (target) target.innerHTML = '<div class="empty-state operations-empty"><span>⌁</span><h3>Activa el módulo operativo</h3><p>Ejecuta el archivo SQL incluido una sola vez en el SQL Editor de tu Supabase.</p></div>';
+        });
+        console.warn('Módulo operativo pendiente:', errors[0].message);
+        return;
+    }
+    operationsReady = true;
+    clients = clientResult.data || [];
+    budgets = budgetResult.data || [];
+    projects = projectResult.data || [];
+    activity = activityResult.data || [];
+    renderOperations();
+}
+
+async function logActivity(action, detail, entityType, entityId) {
+    return db.from('activity_log').insert({ action, detail, entity_type: entityType, entity_id: entityId, created_by: user?.id || null });
+}
+
 function card(s) {
     return `<article class="service-card"><span class="category">${s.category.toUpperCase()}</span><h4>${s.name}</h4><p>${s.description}</p><footer><b>${money(s.min_price)} – ${money(s.max_price)}</b><span>por ${s.unit}</span></footer></article>`;
 }
@@ -102,6 +165,8 @@ function renderCatalog() {
     const query = $('#catalog-search').value.toLowerCase();
     const cat = $('#category-filter').value;
     const filtered = services.filter(s => !cat || s.category === cat).filter(s => [s.name, s.category, s.subcategory || '', s.description, ...(s.keywords || [])].join(' ').toLowerCase().includes(query));
+    const catalogCount = $('#catalog-count');
+    if (catalogCount) catalogCount.textContent = filtered.length;
     if (!filtered.length) {
         $('#catalog-list').innerHTML = '<div class="empty-state"><h3>No encontramos servicios</h3><p>Prueba otra búsqueda o crea uno nuevo.</p></div>';
         return;
@@ -127,11 +192,12 @@ function nav(view) {
     $$('.page').forEach(e => e.classList.remove('active-page'));
     $(`#${view}`).classList.add('active-page');
     $$('.nav-link').forEach(e => e.classList.toggle('active', e.dataset.view === view));
-    const titles = { dashboard: 'Buenos días', catalog: 'Catálogo de servicios', estimate: 'Analizar una necesidad', quote: 'Estimación actual' };
+    const titles = { dashboard: 'Buenos días', clients: 'Clientes', budgets: 'Presupuestos', projects: 'Proyectos', catalog: 'Catálogo de servicios', estimate: 'Analizar una necesidad', quote: 'Estimación actual', history: 'Historial' };
     $('#page-title').textContent = titles[view];
     $('.sidebar').classList.remove('open');
     if (view === 'catalog') renderCatalog();
     if (view === 'quote') renderQuote();
+    if (['clients', 'budgets', 'projects', 'history'].includes(view)) fetchOperations();
 }
 
 function addQuote(s, qty = 1) {
@@ -223,6 +289,7 @@ function openService(s) {
 }
 
 async function fetchServices() {
+    setAppStatus('Actualizando catálogo…', 'loading');
     const { data, error } = await db.from('services').select('*').order('name');
     if (error) {
         toast('Error de conexión o permisos en Supabase (Revisar RLS)');
@@ -232,6 +299,7 @@ async function fetchServices() {
         renderDashboard();
         renderCatalog();
         renderQuote();
+        setAppStatus('No se pudo actualizar', 'error');
         return;
     }
     
@@ -249,6 +317,7 @@ async function fetchServices() {
     renderDashboard();
     renderCatalog();
     renderQuote();
+    setAppStatus(`${services.length} servicios disponibles`, 'ready');
 }
 
 // Authentication
@@ -257,19 +326,35 @@ $('#login-form').onsubmit = async e => {
     const email = $('#login-email').value.trim();
     const password = $('#login-password').value;
     
-    $('#login-error').textContent = 'Conectando...';
+    const submit = $('#editor-login-button');
+    submit.disabled = true;
+    submit.textContent = 'Ingresando…';
+    $('#login-error').textContent = 'Verificando acceso…';
     const { data, error } = await db.auth.signInWithPassword({ email, password });
     
     if (error) {
         $('#login-error').textContent = 'Credenciales incorrectas o error de conexión.';
+        submit.disabled = false;
+        submit.textContent = 'Ingresar como editor';
         return;
     }
+    $('#login-error').textContent = '';
+    submit.disabled = false;
+    submit.textContent = 'Ingresar como editor';
     await checkUserAndStart(data.user);
 };
 
 $('#visitor-btn').onclick = async () => {
-    await db.auth.signOut();
-    await checkUserAndStart(null);
+    const button = $('#visitor-btn');
+    button.disabled = true;
+    button.textContent = 'Abriendo catálogo…';
+    try {
+        await db.auth.signOut();
+        await checkUserAndStart(null);
+    } finally {
+        button.disabled = false;
+        button.textContent = 'Ver catálogo como visitante';
+    }
 };
 
 async function checkUserAndStart(authUser) {
@@ -298,10 +383,13 @@ function startApp() {
     $('#role-badge').textContent = isEditor ? 'Editor' : 'Visitante';
     $$('.admin-only').forEach(x => x.classList.toggle('hidden', !isEditor));
     
+    setAppStatus('Cargando catálogo…', 'loading');
     fetchServices();
+    fetchOperations();
 
     // Suscripción Realtime
-    db
+    if (servicesChannel) db.removeChannel(servicesChannel);
+    servicesChannel = db
       .channel('public:services')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'services' }, payload => {
           fetchServices(); // Recargar todo de manera simple
@@ -316,12 +404,78 @@ $('#catalog-search').oninput = renderCatalog;
 $('#category-filter').onchange = renderCatalog;
 $('#add-service').onclick = () => openService();
 $('#analyze-button').onclick = analyze;
+$('#add-client').onclick = () => $('#client-dialog').showModal();
+$('#save-budget').onclick = () => {
+    if (!quote.length) { toast('Agrega servicios antes de guardar un presupuesto'); return; }
+    if (!operationsReady) { toast('Primero activa el módulo operativo con el SQL incluido'); return; }
+    $('#budget-client').innerHTML = '<option value="">Selecciona un cliente</option>' + clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    $('#budget-title').value = $('#client-need').value.trim().slice(0, 80) || 'Nuevo presupuesto';
+    $('#budget-dialog').showModal();
+};
 $('#mobile-menu').onclick = () => $('.sidebar').classList.toggle('open');
 $('#logout-button').onclick = async () => {
     await db.auth.signOut();
     location.reload();
 };
 $('#theme-button').onclick = () => document.body.classList.toggle('dark');
+
+$('#client-form').onsubmit = async e => {
+    e.preventDefault();
+    const record = { name: $('#client-name').value.trim(), phone: $('#client-phone').value.trim(), email: $('#client-email').value.trim(), location: $('#client-location').value.trim(), notes: $('#client-notes').value.trim(), created_by: user.id };
+    const { error } = await db.from('clients').insert(record);
+    if (error) { toast('No se pudo guardar el cliente'); console.error(error); return; }
+    $('#client-dialog').close();
+    $('#client-form').reset();
+    toast('Cliente registrado');
+    await fetchOperations();
+};
+
+$('#budget-form').onsubmit = async e => {
+    e.preventDefault();
+    const min = quote.reduce((sum, item) => sum + item.min_price * item.qty, 0);
+    const max = quote.reduce((sum, item) => sum + item.max_price * item.qty, 0);
+    const code = `HM-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`;
+    const record = { code, client_id: $('#budget-client').value, title: $('#budget-title').value.trim(), notes: $('#budget-notes').value.trim(), valid_until: $('#budget-valid-until').value || null, status: $('#budget-status').value, total_min: min, total_max: max, created_by: user.id };
+    const { data, error } = await db.from('budgets').insert(record).select().single();
+    if (error) { toast('No se pudo guardar el presupuesto'); console.error(error); return; }
+    const items = quote.map(item => ({ budget_id: data.id, service_id: item.id, service_name: item.name, quantity: item.qty, unit: item.unit, unit_min_price: item.min_price, unit_max_price: item.max_price, total_min: item.min_price * item.qty, total_max: item.max_price * item.qty }));
+    const { error: itemsError } = await db.from('budget_items').insert(items);
+    if (itemsError) { toast('Presupuesto guardado, pero faltan sus servicios'); console.error(itemsError); } else { await logActivity('Presupuesto creado', `${code} · ${record.title}`, 'budget', data.id); toast('Presupuesto guardado en el historial'); }
+    $('#budget-dialog').close();
+    await fetchOperations();
+    nav('budgets');
+};
+
+$('#budgets-list').onchange = async e => {
+    const id = e.target.dataset.budgetStatus;
+    if (!id) return;
+    const status = e.target.value;
+    const budget = budgets.find(item => item.id === id);
+    const { error } = await db.from('budgets').update({ status, updated_at: new Date().toISOString() }).eq('id', id);
+    if (error) { toast('No se pudo actualizar el estado'); return; }
+    await logActivity(`Presupuesto ${statusLabel[status].toLowerCase()}`, `${budget?.code || ''} · ${budget?.title || ''}`, 'budget', id);
+    if (status === 'approved' && budget) {
+        const exists = projects.some(project => project.budget_id === id);
+        if (!exists) {
+            const { error: projectError } = await db.from('projects').insert({ budget_id: id, client_id: budget.client_id, title: budget.title, status: 'in_progress', start_date: new Date().toISOString().slice(0, 10), created_by: user.id });
+            if (!projectError) await logActivity('Proyecto iniciado', `${budget.code} fue aprobado y pasó a ejecución.`, 'project', id);
+        }
+    }
+    toast('Estado actualizado');
+    await fetchOperations();
+};
+
+$('#projects-list').onchange = async e => {
+    const id = e.target.dataset.projectStatus;
+    if (!id) return;
+    const status = e.target.value;
+    const project = projects.find(item => item.id === id);
+    const { error } = await db.from('projects').update({ status, completed_at: status === 'completed' ? new Date().toISOString() : null, updated_at: new Date().toISOString() }).eq('id', id);
+    if (error) { toast('No se pudo actualizar el proyecto'); return; }
+    await logActivity(`Proyecto ${statusLabel[status].toLowerCase()}`, project?.title || '', 'project', id);
+    toast('Estado del proyecto actualizado');
+    await fetchOperations();
+};
 
 $('#catalog-list').onclick = async e => {
     const toggle = e.target.closest('[data-category-toggle]');
