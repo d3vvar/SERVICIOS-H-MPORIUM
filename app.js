@@ -95,7 +95,7 @@ function setAppStatus(message, tone = 'ready') {
 }
 
 function categories() {
-    const names = [...new Set(services.map(s => s.category))];
+    const names = [...new Set([...services.map(s => s.category), ...catalogStructure.filter(x => x.kind === 'category').map(x => x.name)])];
     return names.sort((a, b) => structureOrder('category', a) - structureOrder('category', b) || a.localeCompare(b));
 }
 
@@ -105,10 +105,14 @@ function structureOrder(kind, name, parent = '') {
 }
 
 function syncStructureFromServices() {
-    const current = [];
+    const current = catalogStructure.filter(x => x.kind === 'category');
     categories().forEach((category, index) => {
-        current.push({ kind: 'category', name: category, parent_name: '', sort_order: structureOrder('category', category) === 9999 ? index : structureOrder('category', category) });
-        [...new Set(services.filter(s => s.category === category).map(s => s.subcategory).filter(Boolean))].forEach((name, subIndex) => current.push({ kind: 'subcategory', name, parent_name: category, sort_order: structureOrder('subcategory', name, category) === 9999 ? subIndex : structureOrder('subcategory', name, category) }));
+        if (!current.some(x => x.name === category)) current.push({ kind: 'category', name: category, parent_name: '', sort_order: index });
+        const existingSubs = catalogStructure.filter(x => x.kind === 'subcategory' && x.parent_name === category);
+        current.push(...existingSubs);
+        [...new Set(services.filter(s => s.category === category).map(s => s.subcategory).filter(Boolean))].forEach((name, subIndex) => {
+            if (!existingSubs.some(x => x.name === name)) current.push({ kind: 'subcategory', name, parent_name: category, sort_order: subIndex });
+        });
     });
     catalogStructure = current;
     localStorage.setItem('hm-catalog-structure', JSON.stringify(catalogStructure));
