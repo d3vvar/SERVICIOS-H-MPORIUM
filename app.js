@@ -1,6 +1,14 @@
+// Guard: verificar que la librería Supabase se cargó desde el CDN
+if (!window.supabase) {
+  console.error('La librería de Supabase no se cargó.');
+  alert('No se pudo cargar la conexión. Recarga la página.');
+  throw new Error('Supabase library unavailable');
+}
+
 const supabaseUrl = 'https://wkpxmvemcgkrydldquwl.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndrcHhtdmVtY2drcnlkbGRxdXdsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2Mjk2MjIsImV4cCI6MjEwMjIwNTYyMn0.OPEUy-TjYFG-Xq-a62LS-hgc75eZAHAFUg9wFPR_efA';
-const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+// Se nombra `db` para no ocultar window.supabase con una constante local del mismo nombre
+const db = window.supabase.createClient(supabaseUrl, supabaseKey);
 
 const seedServices = [
   {id:'s1',name:'Anteproyecto arquitectónico',category:'Diseño arquitectónico',min_price:28000,max_price:45000,unit:'m²',time_estimate:'7–12 días',description:'Propuesta espacial preliminar, distribución y concepto de proyecto.',keywords:['anteproyecto','vivienda','casa','distribución','planos','construir']},
@@ -215,7 +223,7 @@ function openService(s) {
 }
 
 async function fetchServices() {
-    const { data, error } = await supabase.from('services').select('*').order('name');
+    const { data, error } = await db.from('services').select('*').order('name');
     if (error) {
         toast('Error de conexión o permisos en Supabase (Revisar RLS)');
         console.error("Error cargando servicios:", error);
@@ -229,7 +237,7 @@ async function fetchServices() {
     
     // Si la BD está vacía y somos editores, migramos los datos locales iniciales
     if (data.length === 0 && isEditor) {
-        const { error: insertError } = await supabase.from('services').insert(seedServices);
+        const { error: insertError } = await db.from('services').insert(seedServices);
         if (!insertError) {
             toast('Catálogo base migrado a Supabase');
             return fetchServices(); // Volver a consultar
@@ -250,7 +258,7 @@ $('#login-form').onsubmit = async e => {
     const password = $('#login-password').value;
     
     $('#login-error').textContent = 'Conectando...';
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await db.auth.signInWithPassword({ email, password });
     
     if (error) {
         $('#login-error').textContent = 'Credenciales incorrectas o error de conexión.';
@@ -260,7 +268,7 @@ $('#login-form').onsubmit = async e => {
 };
 
 $('#visitor-btn').onclick = async () => {
-    await supabase.auth.signOut();
+    await db.auth.signOut();
     await checkUserAndStart(null);
 };
 
@@ -269,7 +277,7 @@ async function checkUserAndStart(authUser) {
     isEditor = false;
 
     if (user) {
-        const { data, error } = await supabase.from('editor_profiles').select('role').eq('user_id', user.id).single();
+        const { data, error } = await db.from('editor_profiles').select('role').eq('user_id', user.id).single();
         if (error) {
             console.warn("No se pudo verificar el perfil de editor (¿Falta política RLS?):", error.message);
         }
@@ -293,7 +301,7 @@ function startApp() {
     fetchServices();
 
     // Suscripción Realtime
-    supabase
+    db
       .channel('public:services')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'services' }, payload => {
           fetchServices(); // Recargar todo de manera simple
@@ -310,7 +318,7 @@ $('#add-service').onclick = () => openService();
 $('#analyze-button').onclick = analyze;
 $('#mobile-menu').onclick = () => $('.sidebar').classList.toggle('open');
 $('#logout-button').onclick = async () => {
-    await supabase.auth.signOut();
+    await db.auth.signOut();
     location.reload();
 };
 $('#theme-button').onclick = () => document.body.classList.toggle('dark');
@@ -330,7 +338,7 @@ $('#catalog-list').onclick = async e => {
         openService(services.find(s => s.id === id));
     }
     if (e.target.dataset.delete && confirm('¿Eliminar este servicio de la base de datos de forma permanente?')) {
-        const { error } = await supabase.from('services').delete().eq('id', id);
+        const { error } = await db.from('services').delete().eq('id', id);
         if (error) {
             toast('Error al eliminar');
             console.error(error);
@@ -365,10 +373,10 @@ $('#service-form').onsubmit = async e => {
 
     let response;
     if (id) {
-        response = await supabase.from('services').update(data).eq('id', id);
+        response = await db.from('services').update(data).eq('id', id);
     } else {
         data.id = `s${Date.now()}`;
-        response = await supabase.from('services').insert([data]);
+        response = await db.from('services').insert([data]);
     }
 
     if (response.error) {
@@ -388,9 +396,9 @@ $('#export-quote').onclick = () => {
     navigator.clipboard?.writeText(text).then(() => toast('Resumen copiado al portapapeles')).catch(() => { prompt('Copia el resumen:', text) });
 };
 
-// Start
+// Start: verificar sesión existente al cargar
 (async () => {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await db.auth.getSession();
     if (session) {
         await checkUserAndStart(session.user);
     }
