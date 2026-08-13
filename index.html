@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#183b36" />
+    <title>Home Mporium · Catálogo de servicios</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="new-style.css" />
+    <link rel="stylesheet" href="catalog-groups.css" />
+    <link rel="stylesheet" href="apple-style.css" />
+    <link rel="stylesheet" href="violet-theme.css" />
+    <link rel="stylesheet" href="hierarchy.css" />
+    <link rel="stylesheet" href="subcategories.css" />
+  </head>
+  <body>
+    <main id="login-view" class="login-shell">
+      <section class="login-panel">
+        <div class="brand-mark" aria-hidden="true">H</div>
+        <p class="eyebrow">HOME MPORIUM</p>
+        <h1>Catálogo inteligente<br />de servicios.</h1>
+        <p class="login-copy">Consulta, analiza y prepara estimaciones preliminares de arquitectura y obra.</p>
+        <form id="login-form" class="login-form">
+          <label>Correo electrónico<input id="login-email" type="email" autocomplete="username" placeholder="tu@correo.com" required /></label>
+          <label>Contraseña<input id="login-password" type="password" autocomplete="current-password" placeholder="Tu contraseña" required /></label>
+          <p id="login-error" class="form-error" role="alert"></p>
+          <div class="login-actions" style="display: flex; gap: 8px; flex-direction: column;">
+            <button class="button primary" type="submit">Ingresar como editor</button>
+            <button id="visitor-btn" class="button secondary" type="button">Continuar como visitante</button>
+          </div>
+        </form>
+      </section>
+      <aside class="login-aside"><span>Herramienta interna</span><div><strong>Servicios claros.</strong><br />Decisiones mejor informadas.</div></aside>
+    </main>
+
+    <div id="app-view" class="app-shell hidden">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><div class="brand-mark small">H</div><div><b>HOME MPORIUM</b><span>Servicios & costos</span></div></div>
+        <nav aria-label="Navegación principal">
+          <button class="nav-link active" data-view="dashboard"><span>⌂</span> Inicio</button>
+          <button class="nav-link" data-view="catalog"><span>▦</span> Catálogo</button>
+          <button class="nav-link" data-view="estimate"><span>✦</span> Analizar necesidad</button>
+          <button class="nav-link" data-view="quote"><span>◫</span> Estimación actual <em id="quote-count">0</em></button>
+        </nav>
+        <div class="sidebar-bottom"><div class="user-mini"><span id="user-initial">A</span><div><b id="user-name">Administrador</b><small id="user-role">Administrador</small></div></div><button id="logout-button" class="logout">Cerrar sesión</button></div>
+      </aside>
+
+      <div class="page-wrap">
+        <header class="topbar"><button id="mobile-menu" class="mobile-menu" aria-label="Abrir menú">☰</button><div><p class="eyebrow">ESPACIO DE TRABAJO</p><h2 id="page-title">Buenos días</h2></div><div class="topbar-actions"><span id="role-badge" class="role-badge">Administrador</span><button id="theme-button" class="icon-button" aria-label="Cambiar apariencia">◐</button></div></header>
+
+        <main class="content">
+          <section id="dashboard" class="page active-page">
+            <div class="hero"><div><p class="eyebrow">PRE-COTIZACIÓN</p><h1>¿Qué necesita el cliente?</h1><p>Describe el proyecto con tus palabras. Identificaremos servicios, datos clave y lo que falta por definir.</p></div><button class="button light" data-go="estimate">Analizar una necesidad <span>→</span></button></div>
+            <div class="metric-grid"><article><span>Servicios activos</span><strong id="metric-services">0</strong><small>en el catálogo</small></article><article><span>Categorías</span><strong id="metric-categories">0</strong><small>áreas de trabajo</small></article><article><span>Estimación actual</span><strong id="metric-total">$0</strong><small id="metric-items">sin servicios seleccionados</small></article></div>
+            <section class="section-block"><div class="section-heading"><div><p class="eyebrow">CATÁLOGO</p><h3>Servicios frecuentes</h3></div><button class="text-button" data-go="catalog">Ver catálogo completo →</button></div><div id="featured-services" class="service-grid"></div></section>
+          </section>
+
+          <section id="catalog" class="page">
+            <div class="page-intro"><div><p class="eyebrow">BASE DE SERVICIOS</p><h1>Catálogo</h1><p>Administra precios, unidades, tiempos y criterios de cada servicio.</p></div><button id="add-service" class="button primary admin-only">+ Nuevo servicio</button></div>
+            <div class="catalog-toolbar"><label class="search-field">⌕ <input id="catalog-search" placeholder="Buscar por nombre, categoría o palabra clave" /></label><select id="category-filter"><option value="">Todas las categorías</option></select></div>
+            <div id="catalog-list" class="catalog-list"></div>
+          </section>
+
+          <section id="estimate" class="page">
+            <div class="page-intro"><p class="eyebrow">ASISTENTE DE PRE-COTIZACIÓN</p><h1>Analiza una necesidad</h1><p>El resultado es preliminar; revísalo y ajústalo antes de compartir una cotización.</p></div>
+            <div class="analysis-layout"><div class="analysis-input"><label for="client-need">Describe lo que solicita el cliente</label><textarea id="client-need" rows="8" placeholder="Ejemplo: Tengo un terreno de 120 m² y el cliente quiere construir una vivienda de 2 niveles, aproximadamente 180 m², con 3 dormitorios, 2 baños y cochera."></textarea><div class="helper-row"><span>Incluye medidas, tipo de proyecto, espacios y necesidades.</span><button id="analyze-button" class="button primary">Analizar necesidad →</button></div></div><aside class="analysis-tip"><span>✦</span><h3>¿Qué detectamos?</h3><p>Tipo de proyecto, áreas, niveles, espacios y palabras relacionadas con los servicios del catálogo.</p></aside></div>
+            <div id="analysis-results" class="analysis-results empty-state"><span>✦</span><h3>Escribe una necesidad para comenzar</h3><p>Aquí aparecerán los datos detectados, servicios sugeridos e información faltante.</p></div>
+          </section>
+
+          <section id="quote" class="page">
+            <div class="page-intro quote-header"><div><p class="eyebrow">BORRADOR DE ESTIMACIÓN</p><h1>Estimación actual</h1><p>Modifica cantidades y precios. Los cambios solo afectan este borrador.</p></div><button id="export-quote" class="button secondary">Exportar resumen</button></div>
+            <div class="quote-layout"><div id="quote-items" class="quote-items"></div><aside class="quote-summary"><p class="eyebrow">RESUMEN PRELIMINAR</p><div class="summary-line"><span>Servicios</span><b id="summary-services">0</b></div><div class="summary-line"><span>Tiempo estimado</span><b id="summary-time">—</b></div><div class="summary-total"><span>Rango estimado</span><strong id="summary-total">S/ 0 — S/ 0</strong></div><p class="disclaimer">Valores orientativos en soles peruanos. No constituye una cotización definitiva.</p></aside></div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <dialog id="service-dialog"><form id="service-form" method="dialog"><div class="dialog-head"><div><p class="eyebrow">CATÁLOGO</p><h2 id="dialog-title">Nuevo servicio</h2></div><button class="close-dialog" value="cancel" aria-label="Cerrar">×</button></div><input id="service-id" type="hidden" /><div class="form-grid"><label>Nombre<input id="service-name" required /></label><label>Categoría<input id="service-category" list="category-options" required /></label><label>Subcategoría <small>opcional</small><input id="service-subcategory" list="subcategory-options" placeholder="Ej. Diseño residencial" /></label><label>Precio mínimo (S/)<input id="service-min" type="number" min="0" required /></label><label>Precio máximo (S/)<input id="service-max" type="number" min="0" required /></label><label>Unidad<select id="service-unit"><option>m²</option><option>unidad</option><option>proyecto</option><option>visita</option><option>hora</option></select></label><label>Tiempo estimado<input id="service-time" placeholder="Ej. 7–10 días" required /></label><label class="full">Descripción<textarea id="service-description" rows="3" required></textarea></label><label class="full">Palabras clave <small>separadas por coma</small><input id="service-keywords" placeholder="vivienda, planos, construcción" /></label></div><div class="dialog-actions"><button value="cancel" class="button secondary">Cancelar</button><button id="save-service" value="default" class="button primary">Guardar servicio</button></div></form></dialog><datalist id="category-options"></datalist><datalist id="subcategory-options"></datalist>
+    <div id="toast" class="toast" role="status"></div>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
